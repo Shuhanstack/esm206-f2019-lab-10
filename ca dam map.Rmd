@@ -1,0 +1,82 @@
+---
+title: "map"
+author: "Shuhan Song"
+date: "12/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(beepr)
+library(sf)
+library(gganimate)
+library(transformr)
+library(here)
+library(tidyverse)
+library(janitor)
+```
+
+### 6. A little map teaser
+
+our first map with `{sf}` package
+
+`sf`: by Edzer pebesma
+Great beacause: sticky geometries
+
+Data source: 
+[https://nid.sec.usace.army.mil/ords/f?p=105:19:14606625072661::NO:::](National Inventory of Dams)
+
+Get and check out the CA dams data: 
+```{r}
+dams <- read_csv("ca_dams.csv") %>% 
+  clean_names() %>% 
+  drop_na(latitude) %>% # only keep dams that have latitue, year_completed and langitude information
+  drop_na(longitude) %>% 
+  drop_na(year_completed)
+```
+
+Then make sure R understands that latitude & longitude are spatial coordinates using `sf::st_as_sf()`:
+```{r}
+# converts our data frame to and sf pobject using st_as_Sf
+dams_sf <- st_as_sf(dams, 
+                    coords = c("longitude","latitude")
+                    )
+
+st_crs(dams_sf) <- 4326
+
+
+
+# Check class:
+class(dams_sf)
+```
+
+What does that mean? Now R recognizes this as spatial data. 
+
+Cool! Now let's get an outline for California: 
+
+# NOTE: GET SAME PROJECTIONS HERE! 
+```{r}
+ca_border <- read_sf(here::here("ca_state_border"), layer = "CA_State_TIGER2016")
+
+```
+
+
+### 7. A little gganimate teaser
+
+Now show how dams have been added over time with `gganimate`!
+```{r}
+ggplot() +
+  geom_sf(data = ca_border,
+          fill = "pink",
+          color = "white") +
+  geom_sf(data = dams_sf, 
+          size = 1.5,
+          color = "gray50") +
+  theme_void() +
+  labs(title = 'Year: {round(frame_time,0)}') +
+  transition_time(year_completed) +  # stay after show up
+  shadow_mark()
+# not show up in markdown
+beep(4)
+```
+
