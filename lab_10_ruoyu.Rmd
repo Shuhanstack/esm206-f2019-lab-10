@@ -1,0 +1,317 @@
+---
+title: "ESM 206 Fall 2019 - Lab 10"
+author: "Allison Horst"
+date: "11/29/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+library(corrplot)
+library(beepr)
+library(praise)
+library(stargazer) # For nice regression tables! 
+# Hlavac, Marek (2018). stargazer: Well-Formatted Regression and Summary Statistics Tables.
+#  R package version 5.2.2. https://CRAN.R-project.org/package=stargazer 
+library(sf)
+library(gganimate)
+library(transformr)
+```
+
+## Objectives:
+
+- Multiple linear regression
+- Check assumptions w/diagnostic plots
+- Make predictions with new data
+- Some other fun things (beepr, praise, sf, gganimate)
+=our first map with sf + ggplot
+
+### 1. Multiple linear regression
+
+Here, we'll be modeling housing price based on house characteristics using data from SLO home sales.
+
+- Read in slo_homes.csv file and explore
+- Only keep observations for San Luis Obispo, Atascadero and Arroyo Grande
+
+```{r}
+homes <- read_csv("slo_homes.csv") %>% 
+  clean_names() %>% 
+  filter(city %in% c("San Luis Obispo", "Atascadero", "Arroyo Grande"))
+
+beep(10) # 1-12 sounds
+  
+praise() # random praise check: name
+praise("You are totally ${adjective}! Super ${EXCLAMATION}!")
+```
+Are there correlations betwee variables that we'd consider while trying to model home price?
+
+Some exploring: look at correlations between numeric variables
+```{r}
+homes_cor <- cor(homes[2:5])
+homes_cor
+
+corrplot(homes_cor, 
+         method = "ellipse", # could also do "circle"
+         type = "upper")
+
+# Moderate correlations between numeric variables (no concern about multicollinearity here from a correlation value standpoint, but there may be some conceptual overlap between variables)
+
+praise()
+# See: names(praise_parts) for other things you can call in praise
+
+# For example, customize it a bit
+praise("You are totally ${adjective}! Super ${EXCLAMATION}!")
+```
+Are there reasons to believe this should be a multiple linear model
+linear regression actual makes sense?
+```{r}
+ggplot(data = homes, aes(x = sq_ft, y = price))+
+  geom_point()
+
+ggplot(data = homes, aes(x = bedrooms, y = price))+
+  geom_point()
+```
+
+But let's start out with a complete model(includes city, bedrooms, bathrooms, sq_ft, ) using all variables we have: 
+```{r}
+# price model as a function (~) of city, bedrooms, bathrooms, sq_ft and status
+homes_lm <- lm(price ~ city + bedrooms + bathrooms + sq_ft + status, data = homes)
+
+# View it: 
+homes_lm
+summary(homes_lm)
+# give you the equation of the model
+
+```
+
+Price = 184130 - 167396(cityAtascadero) + 31018.14(citySan Luis Obispo)-161645.51(bedrooms)
+
+Well that's kind of a nightmare to look at. (bedrooms, bathrooms and suqre footage are all indicators about how big the house is) And putting it into a table could be really challenging. 
+Now lets try another version of the model
+Just using sq_ft as amuasure of home size
+```{r}
+homes_lm2 <- lm(price ~ city + sq_ft + status, data = homes)
+
+summary(homes_lm2)
+```
+AIC
+```{r}
+AIC(homes_lm)
+AIC(homes_lm2)
+
+# we want the lower value of AIC.
+# But the model making sense should be the most important thing
+# adding the complecity comes more useful 
+```
+We believe the model 2 is the most sound model conceptionally
+
+
+
+Enter, the `stargazer` package. 
+
+```{r, results = "asis"}
+stargazer(homes_lm, type = "html")
+```
+
+Let's answer a few questions: 
+
+- How do we interpret each of these variables? 
+- What is the reference level for city? 
+- What does NOT make sense here, that might be multiply described by another variable in the model?
+
+Try another version of the model:
+```{r}
+homes_lm2 <- lm(price ~ city + sq_ft + status, data = homes)
+```
+
+And check out the results: 
+```{r, results = "asis"}
+stargazer(homes_lm2, type = "html") # And you can customize...
+```
+
+You can also use stargazer for multiple model comparisons: 
+```{r, results = "asis"}
+stargazer(homes_lm, homes_lm2, type = "html")
+```
+
+### 2. Exploring diagnostics
+Now, check assumptions for normality nad homoscedasticity
+We can use the diagnostic plots to check assumptions about residuals, e.g.:
+
+- Constant variance of residuals?
+- Normally distributed residuals?
+- Also check: any notable outliers? 
+
+
+```{r}
+plot(homes_lm2) 
+# yep looks like 
+# for the qq plot,the data is almost perfectly normal distribution. the point 121 has higher price than our model predicts, it might because we miss some information, nor necessarily mean our model went wrong
+# Residuals vs Leverage
+```
+
+```{r}
+plot(homes_lm)
+```
+Make a nice regression table:
+```{r, results='asis'}
+
+stargazer(homes_lm2, type = "html")
+```
+
+
+### 3. Predictions for home price with multiple variables 
+
+First, we'll make a new data frame containing all variables that `home_lm2` needs to make a prediction: 
+
+Make sure that the variables we create for the new data match the variables that the model will be looking for to make new predictions.
+
+```{r}
+new_df <- data.frame(
+  city = rep(c("San Luis Obispo", "Arroyo Grande", "Atascadero"), each = 10),
+  sq_ft = rep(seq(1000, 5000, length = 10)),
+  status = "Regular"
+)
+
+# rep: repet function rep(names, repet_times); sequence function seq()
+# rep("Regular", 30) = "Regular"
+new_df
+```
+
+Then, use the `predict()` function to find the predicted home prices for each combination in `new_df`:
+
+```{r}
+
+# Make the predictions using new_df:
+# predict(my actual model name, the values I want to precit)
+predict_df <- predict(homes_lm2, newdata = new_df)
+
+
+# Then bind predictions together with new_df:
+full_df <- data.frame(new_df, predict_df)
+full_df
+```
+
+### 4. Visualize it! 
+
+```{r}
+# point style - pch
+ggplot() +
+  geom_point(data = homes, 
+             aes(x = sq_ft, 
+                 y = price,
+                 color = city,
+                 pch = city),
+             size = 1,
+             alpha = 0.5) + 
+  geom_line(data = full_df,
+            aes(x = sq_ft, 
+                y = predict_df,
+                color = city)) +
+  scale_color_manual(values = c("orange", "magenta", "black")) +
+  theme_light()
+
+```
+
+### 5. Compare AIC values 
+
+...but statistics are not substitute for judgement!
+```{r}
+AIC(homes_lm)
+AIC(homes_lm2)
+
+# Pretty close, but the first model has a lower AIC. Should I pick the first model just based on AIC? NO!
+```
+
+### 6. A little map teaser
+
+our first map with `{sf}` package
+
+`sf`: by Edzer pebesma
+Great beacause: sticky geometries
+
+Data source: 
+[https://nid.sec.usace.army.mil/ords/f?p=105:19:14606625072661::NO:::](National Inventory of Dams)
+
+Get and check out the CA dams data: 
+```{r}
+dams <- read_csv("ca_dams.csv") %>% 
+  clean_names() %>% 
+  drop_na(latitude) %>% # only keep dams that have latitue, year_completed and langitude information
+  drop_na(longitude) %>% 
+  drop_na(year_completed)
+```
+
+Then make sure R understands that latitude & longitude are spatial coordinates using `sf::st_as_sf()`:
+```{r}
+# converts our data frame to and sf pobject using st_as_Sf
+dams_sf <- st_as_sf(dams, 
+                    coords = c("longitude","latitude")
+                    )
+
+st_crs(dams_sf) <- 4326
+
+
+
+# Check class:
+class(dams_sf)
+```
+
+What does that mean? Now R recognizes this as spatial data. 
+
+```{r}
+plot(dams_sf)
+```
+
+Cool! Now let's get an outline for California: 
+
+# NOTE: GET SAME PROJECTIONS HERE! 
+```{r}
+ca_border <- read_sf(here::here("ca_state_border"), layer = "CA_State_TIGER2016")
+
+plot(ca_border)
+```
+
+Then plot them together with ggplot2!
+```{r}
+
+ggplot() +
+  geom_sf(data = dams_sf)
+
+ggplot() +
+  geom_sf(data = ca_border)
+
+# Combine: 
+ggplot() +
+  geom_sf(data = ca_border,
+          color = "white",
+          fill = "grey40") +
+  geom_sf(data = dams_sf,
+          size = 1,
+          alpha = 0.5,
+          color = "orange") +
+  theme_minimal()
+
+beepr::beep(11)
+```
+
+### 7. A little gganimate teaser
+
+Now show how dams have been added over time with `gganimate`!
+```{r}
+ggplot() +
+  geom_sf(data = ca_border,
+          fill = "pink",
+          color = "white") +
+  geom_sf(data = dams_sf, 
+          size = 1.5,
+          color = "gray50") +
+  theme_void() +
+  labs(title = 'Year: {round(frame_time,0)}') +
+  transition_time(year_completed) + # stay after show up
+  shadow_mark()
+# not show up in markdown
+beep(4)
+```
